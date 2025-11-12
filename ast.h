@@ -33,7 +33,10 @@
 #include "location.h"
 #include <iostream>
 
-class Node 
+class CodeGenerator;
+class Location;
+
+class Node
 {
   protected:
     yyltype *location;
@@ -42,20 +45,22 @@ class Node
   public:
     Node(yyltype loc);
     Node();
-    
+    virtual ~Node() {}
+
     yyltype *GetLocation()   { return location; }
     void SetParent(Node *p)  { parent = p; }
     Node *GetParent()        { return parent; }
 };
    
 
-class Identifier : public Node 
+class Identifier : public Node
 {
   protected:
     char *name;
-    
+
   public:
     Identifier(yyltype loc, const char *name);
+    const char *GetName() { return name; }
     friend std::ostream& operator<<(std::ostream& out, Identifier *id) { return out << id->name; }
 };
 

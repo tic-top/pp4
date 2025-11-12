@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include "list.h"
 #include "tac.h"
+#include "hashtable.h"
  
 
               // These codes are used to identify the built-in functions
@@ -26,6 +27,11 @@ typedef enum { Alloc, ReadLine, ReadInteger, StringEqual,
 class CodeGenerator {
   private:
     List<Instruction*> *code;
+    int curStackOffset;  // track current stack offset for temps/locals
+    int globalOffset;    // track global variable offset
+    List<const char*> *loopEndLabels;  // stack of loop end labels for break statements
+    Hashtable<Location*> *varLocations;  // symbol table for variable locations
+    Hashtable<class VarDecl*> *varDecls;  // symbol table for variable declarations (to get type info)
 
   public:
            // Here are some class constants to remind you of the offsets
@@ -165,6 +171,26 @@ class CodeGenerator {
          // but instead just print the untranslated Tac. It may be
          // useful in debugging to first make sure your Tac is correct.
     void DoFinalCodeGen();
+    void EmitBuiltIns();  // Emit built-in function implementations
+
+         // Helper methods for managing stack frames and variable locations
+    void ResetLocalOffset();           // Reset offset for new function
+    int GetCurrentLocalOffset();       // Get current local offset
+    Location *GenLocalVar(const char *name);  // Allocate local variable
+    Location *GenGlobalVar(const char *name); // Allocate global variable
+    Location *GenParamVar(const char *name, int paramIndex, bool isMethod); // Allocate parameter
+
+         // Helper methods for managing break statements in loops
+    void PushLoopEndLabel(const char *label);  // Push loop end label for break
+    void PopLoopEndLabel();                     // Pop loop end label after loop
+    const char *GetCurrentLoopEndLabel();      // Get current loop end label for break
+
+         // Symbol table methods for variable locations
+    void AddVariable(const char *name, Location *loc);  // Add variable to symbol table
+    void AddVarDecl(const char *name, class VarDecl *decl);  // Add VarDecl to symbol table
+    Location *GetVariable(const char *name);             // Get variable location from symbol table
+    class VarDecl *GetVarDecl(const char *name);         // Get VarDecl from symbol table
+    void ClearVariables();                                // Clear symbol table (for new scope)
 };
 
 #endif

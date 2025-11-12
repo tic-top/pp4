@@ -1,0 +1,218 @@
+# 失败样本详细信息
+
+## t2.decaf
+```
+cat samples/t2.decaf
+```
+
+## t3.decaf  
+```
+cat samples/t3.decaf
+```
+
+## t5.decaf
+```
+cat samples/t5.decaf
+```
+
+## t7.decaf
+```
+cat samples/t7.decaf
+```
+
+## t8.decaf (部分工作)
+```
+cat samples/t8.decaf
+```
+
+
+==================================
+FILE: samples/t2.decaf
+==================================
+int a;
+string[] b;
+
+int[] tester(int sz) {
+  int i;
+  int[] result;
+  b = NewArray(1, string);
+  result = NewArray(sz, int);
+  for (i = 0; i < sz; i = i + 1)
+	result[i] = i;
+  b[0] = "Done";
+  return result;
+}
+
+void main() {
+  int[] d;
+  d = tester(8);
+  Print(d[d[1]], "\n", d.length(), "\n");
+  Print(b[0], "\n");
+}
+
+
+==================================
+FILE: samples/t3.decaf
+==================================
+
+void main()
+{
+   Cow betsy;
+  betsy = New(Cow);
+  betsy.Init(100, 122);
+  betsy.Moo();
+}
+
+class Cow {
+  int height;
+  int weight;
+
+  void Init(int w, int h)
+  {
+    weight = w;
+    height = h;
+  }
+
+  void Moo() {
+    Print ( this.height, " ", this.weight, "\n" );
+  }
+}
+
+
+
+==================================
+FILE: samples/t5.decaf
+==================================
+bool Wild(string[] names, string answer)
+{
+   int i;
+   for (i = 0; i < names.length(); i = i + 1) {
+	if (names[i] == answer) 
+	   return true;
+  }
+  return false;
+}
+
+void main()
+{
+    string[] names;
+    names = NewArray(3, string);
+    names[0] = "Satish";
+    names[1] = "Chun";
+    names[2] = "Supriya";
+
+    while (true) {
+      Print("\nWho is your favorite EECS483 staff member? ");
+      if (Wild(names, ReadLine())) {
+	   Print("You just earned 1000 bonus points!\n");
+         break;
+      }
+      Print("That's not a good way to make points. Try again!\n");
+   }
+}
+
+
+==================================
+FILE: samples/t7.decaf
+==================================
+//
+// Classes with inheritance
+//
+
+class Animal {
+  int height;
+  Animal mother;
+  void InitAnimal(int h, Animal mom) {
+    this.height = h;
+    mother = mom;
+  }
+
+  int GetHeight() {	
+    return height;
+  }
+
+  Animal GetMom() {
+    return this.mother;
+  }
+}
+
+class Cow extends Animal {
+  bool isSpotted;
+  void InitCow(int h, Animal m, bool spot) {
+    isSpotted = spot;
+    InitAnimal(h,m);
+  }
+  bool IsSpottedCow () {
+    return isSpotted;
+  }
+}
+
+
+void main() {
+  Cow betsy;
+  Animal b;
+  betsy = New(Cow);
+  
+  betsy.InitCow(5, null, true);
+  b = betsy;
+  b.GetMom();
+  Print("spots: ",betsy.IsSpottedCow(), "    height: ", b.GetHeight());
+}
+      
+
+
+
+
+==================================
+FILE: samples/t8.decaf
+==================================
+class Squash extends Vegetable {
+   void Grow(Seeds []seeds, int [][]water)
+   {
+      Print("But I don't like squash\n");
+      Print(10 * 5);
+   }
+}
+
+class Vegetable {
+    int weight;
+    int color;
+
+
+    void Eat(Vegetable veg)
+    {
+       Seeds[] s;
+       int [][]w;
+       color = 5 % 2;
+       Print("Yum! ", color, "\n");
+       veg.Grow(s, w);
+       return;
+    }
+
+   void Grow(Seeds []seeds, int [][]water)
+   {
+      Print("Grow, little vegetables, grow!\n");
+      Eat(this);
+   }
+}
+
+
+void Grow(int a) {
+   Print("mmm... veggies!\n");
+}
+
+class Seeds {
+   int size;
+}
+
+
+void main()
+{
+   Vegetable []veggies;
+   veggies = NewArray(2, Vegetable);
+   veggies[0] = New(Squash);
+   veggies[1] = New(Vegetable);
+   Grow(10);
+   veggies[1].Eat(veggies[0]);
+}
+

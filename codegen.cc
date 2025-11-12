@@ -13,6 +13,11 @@
 CodeGenerator::CodeGenerator()
 {
   code = new List<Instruction*>();
+  curStackOffset = OffsetToFirstLocal;
+  globalOffset = OffsetToFirstGlobal;
+  loopEndLabels = new List<const char*>();
+  varLocations = new Hashtable<Location*>();
+  varDecls = new Hashtable<VarDecl*>();
 }
 
 char *CodeGenerator::NewLabel()
@@ -28,13 +33,10 @@ Location *CodeGenerator::GenTempVar()
 {
   static int nextTempNum;
   char temp[10];
-  Location *result = NULL;
   sprintf(temp, "_tmp%d", nextTempNum++);
-  /* pp4: need to create variable in proper location
-     in stack frame for use as temporary. Until you
-     do that, the assert below will always fail to remind
-     you this needs to be implemented  */
-  Assert(result != NULL);
+  /* pp4: create variable in proper location in stack frame for use as temporary */
+  Location *result = new Location(fpRelative, curStackOffset, strdup(temp));
+  curStackOffset -= VarSize;
   return result;
 }
 
@@ -198,7 +200,234 @@ void CodeGenerator::DoFinalCodeGen()
      mips.EmitPreamble();
      for (int i = 0; i < code->NumElements(); i++)
 	 code->Nth(i)->Emit(&mips);
+     // Emit built-in function implementations
+     EmitBuiltIns();
   }
+}
+
+void CodeGenerator::EmitBuiltIns()
+{
+    // Emit MIPS code for built-in functions
+    printf("  _PrintInt:\n");
+    printf("      subu $sp, $sp, 8\t# decrement sp to make space to save ra,fp\n");
+    printf("      sw $fp, 8($sp)\t# save fp\n");
+    printf("      sw $ra, 4($sp)\t# save ra\n");
+    printf("      addiu $fp, $sp, 8\t# set up new fp\n");
+    printf("      lw $a0, 4($fp)\t# fill a to $t0 from $fp+4\n");
+    printf("    # LCall _PrintInt\n");
+    printf("      li $v0, 1\n");
+    printf("      syscall\n");
+    printf("    # EndFunc\n");
+    printf("    # (below handles reaching end of fn body with no explicit return)\n");
+    printf("      move $sp, $fp\t\t# pop callee frame off stack\n");
+    printf("      lw $ra, -4($fp)\t# restore saved ra\n");
+    printf("      lw $fp, 0($fp)\t# restore saved fp\n");
+    printf("      jr $ra\t\t# return from function\n");
+    printf("\n");
+    printf("  _ReadInteger:\n");
+    printf("      subu $sp, $sp, 8\t# decrement sp to make space to save ra,fp\n");
+    printf("      sw $fp, 8($sp)\t# save fp\n");
+    printf("      sw $ra, 4($sp)\t# save ra\n");
+    printf("      addiu $fp, $sp, 8\t# set up new fp\n");
+    printf("      li $v0, 5\n");
+    printf("      syscall\n");
+    printf("    # EndFunc\n");
+    printf("    # (below handles reaching end of fn body with no explicit return)\n");
+    printf("      move $sp, $fp\t\t# pop callee frame off stack\n");
+    printf("      lw $ra, -4($fp)\t# restore saved ra\n");
+    printf("      lw $fp, 0($fp)\t# restore saved fp\n");
+    printf("      jr $ra\t\t# return from function\n");
+    printf("\n");
+    printf("\n");
+    printf("  _PrintBool:\n");
+    printf("          subu $sp, $sp, 8      # decrement sp to make space to save ra, fp\n");
+    printf("          sw $fp, 8($sp)        # save fp\n");
+    printf("          sw $ra, 4($sp)        # save ra\n");
+    printf("          addiu $fp, $sp, 8     # set up new fp\n");
+    printf("          lw $t1, 4($fp)        # fill a from $fp+4\n");
+    printf("      li $t2, 0\n");
+    printf("          li $v0, 4\n");
+    printf("      beq $t1, $t2, _PrintBoolFalse\n");
+    printf("      la $a0, _PrintBoolTrueString\n");
+    printf("      j _PrintBoolEnd\n");
+    printf("    _PrintBoolFalse:\n");
+    printf("    \t  la $a0, _PrintBoolFalseString\n");
+    printf("    _PrintBoolEnd:\n");
+    printf("          syscall\n");
+    printf("        # EndFunc\n");
+    printf("        # (below handles reaching end of fn body with no explicit return)\n");
+    printf("          move $sp, $fp         # pop callee frame off stack\n");
+    printf("          lw $ra, -4($fp)       # restore saved ra\n");
+    printf("          lw $fp, 0($fp)        # restore saved fp\n");
+    printf("          jr $ra                # return from function\n");
+    printf("\n");
+    printf("      .data\t\t\t# create string constant marked with label\n");
+    printf("      _PrintBoolTrueString: .asciiz \"true\"\n");
+    printf("      .text\n");
+    printf("\n");
+    printf("      .data\t\t\t# create string constant marked with label\n");
+    printf("      _PrintBoolFalseString: .asciiz \"false\"\n");
+    printf("      .text\n");
+    printf("\n");
+    printf("  _PrintString:\n");
+    printf("          subu $sp, $sp, 8      # decrement sp to make space to save ra, fp\n");
+    printf("          sw $fp, 8($sp)        # save fp\n");
+    printf("          sw $ra, 4($sp)        # save ra\n");
+    printf("          addiu $fp, $sp, 8     # set up new fp\n");
+    printf("          lw $a0, 4($fp)        # fill a from $fp+4\n");
+    printf("          li $v0, 4\n");
+    printf("          syscall\n");
+    printf("        # EndFunc\n");
+    printf("        # (below handles reaching end of fn body with no explicit return)\n");
+    printf("          move $sp, $fp         # pop callee frame off stack\n");
+    printf("          lw $ra, -4($fp)       # restore saved ra\n");
+    printf("          lw $fp, 0($fp)        # restore saved fp\n");
+    printf("          jr $ra                # return from function\n");
+    printf("\n");
+    printf("  _Alloc:\n");
+    printf("          subu $sp, $sp, 8      # decrement sp to make space to save ra, fp\n");
+    printf("          sw $fp, 8($sp)        # save fp\n");
+    printf("          sw $ra, 4($sp)        # save ra\n");
+    printf("          addiu $fp, $sp, 8     # set up new fp\n");
+    printf("          lw $a0, 4($fp)        # fill a from $fp+4\n");
+    printf("          li $v0, 9\n");
+    printf("          syscall\n");
+    printf("        # EndFunc\n");
+    printf("        # (below handles reaching end of fn body with no explicit return)\n");
+    printf("          move $sp, $fp         # pop callee frame off stack\n");
+    printf("          lw $ra, -4($fp)       # restore saved ra\n");
+    printf("          lw $fp, 0($fp)        # restore saved fp\n");
+    printf("          jr $ra                # return from function\n");
+    printf("\n");
+    printf("  _Halt:\n");
+    printf("          li $v0, 10\n");
+    printf("          syscall\n");
+    printf("\n");
+    printf("  _ReadLine:\n");
+    printf("          subu $sp, $sp, 8      # decrement sp to make space to save ra, fp\n");
+    printf("          sw $fp, 8($sp)        # save fp\n");
+    printf("          sw $ra, 4($sp)        # save ra\n");
+    printf("          addiu $fp, $sp, 8     # set up new fp\n");
+    printf("          li $a0, 101\n");
+    printf("          li $v0, 9\n");
+    printf("          syscall\n");
+    printf("          addu $a0, $v0, $zero  # copy allocated memory reference to $a0\n");
+    printf("          li $a1, 101           # read 100 + null terminator\n");
+    printf("          li $v0, 8             # ReadString syscall\n");
+    printf("          syscall\n");
+    printf("        # EndFunc\n");
+    printf("        # (below handles reaching end of fn body with no explicit return)\n");
+    printf("          move $sp, $fp         # pop callee frame off stack\n");
+    printf("          lw $ra, -4($fp)       # restore saved ra\n");
+    printf("          lw $fp, 0($fp)        # restore saved fp\n");
+    printf("          jr $ra                # return from function\n");
+    printf("\n");
+    printf("  _StringEqual:\n");
+    printf("          subu $sp, $sp, 8      # decrement sp to make space to save ra, fp\n");
+    printf("          sw $fp, 8($sp)        # save fp\n");
+    printf("          sw $ra, 4($sp)        # save ra\n");
+    printf("          addiu $fp, $sp, 8     # set up new fp\n");
+    printf("          lw $a0, 4($fp)        # fill a from $fp+4\n");
+    printf("          lw $a1, 8($fp)        # fill b from $fp+8\n");
+    printf("    _StringEqual_loop:\n");
+    printf("          lb $t0, ($a0)\n");
+    printf("          lb $t1, ($a1)\n");
+    printf("          bne $t0, $t1, _StringEqual_no\n");
+    printf("          beq $t0, $zero, _StringEqual_yes\n");
+    printf("          addu $a0, $a0, 1\n");
+    printf("          addu $a1, $a1, 1\n");
+    printf("          j _StringEqual_loop\n");
+    printf("    _StringEqual_yes:\n");
+    printf("          li $v0, 1\n");
+    printf("          j _StringEqual_done\n");
+    printf("    _StringEqual_no:\n");
+    printf("          li $v0, 0\n");
+    printf("    _StringEqual_done:\n");
+    printf("        # EndFunc\n");
+    printf("        # (below handles reaching end of fn body with no explicit return)\n");
+    printf("          move $sp, $fp         # pop callee frame off stack\n");
+    printf("          lw $ra, -4($fp)       # restore saved ra\n");
+    printf("          lw $fp, 0($fp)        # restore saved fp\n");
+    printf("          jr $ra                # return from function\n");
+}
+
+void CodeGenerator::ResetLocalOffset()
+{
+  curStackOffset = OffsetToFirstLocal;
+}
+
+int CodeGenerator::GetCurrentLocalOffset()
+{
+  return curStackOffset;
+}
+
+Location *CodeGenerator::GenLocalVar(const char *name)
+{
+  Location *loc = new Location(fpRelative, curStackOffset, name);
+  curStackOffset -= VarSize;
+  return loc;
+}
+
+Location *CodeGenerator::GenGlobalVar(const char *name)
+{
+  Location *loc = new Location(gpRelative, globalOffset, name);
+  globalOffset += VarSize;
+  return loc;
+}
+
+Location *CodeGenerator::GenParamVar(const char *name, int paramIndex, bool isMethod)
+{
+  // For methods, first param is 'this' at fp+4, so shift normal params
+  int offset = OffsetToFirstParam + (isMethod ? VarSize : 0) + paramIndex * VarSize;
+  return new Location(fpRelative, offset, name);
+}
+
+void CodeGenerator::PushLoopEndLabel(const char *label)
+{
+  loopEndLabels->Append(label);
+}
+
+void CodeGenerator::PopLoopEndLabel()
+{
+  if (loopEndLabels->NumElements() > 0)
+    loopEndLabels->RemoveAt(loopEndLabels->NumElements() - 1);
+}
+
+const char *CodeGenerator::GetCurrentLoopEndLabel()
+{
+  if (loopEndLabels->NumElements() > 0)
+    return loopEndLabels->Nth(loopEndLabels->NumElements() - 1);
+  return NULL;
+}
+
+void CodeGenerator::AddVariable(const char *name, Location *loc)
+{
+  varLocations->Enter(name, loc);
+}
+
+void CodeGenerator::AddVarDecl(const char *name, VarDecl *decl)
+{
+  varDecls->Enter(name, decl);
+}
+
+Location *CodeGenerator::GetVariable(const char *name)
+{
+  Location *loc = varLocations->Lookup(name);
+  return loc;
+}
+
+VarDecl *CodeGenerator::GetVarDecl(const char *name)
+{
+  VarDecl *decl = varDecls->Lookup(name);
+  return decl;
+}
+
+void CodeGenerator::ClearVariables()
+{
+  delete varLocations;
+  varLocations = new Hashtable<Location*>();
+  delete varDecls;
+  varDecls = new Hashtable<VarDecl*>();
 }
 
 

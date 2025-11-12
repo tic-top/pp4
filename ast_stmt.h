@@ -36,16 +36,18 @@ class Stmt : public Node
   public:
      Stmt() : Node() {}
      Stmt(yyltype loc) : Node(loc) {}
+     virtual Location* Emit(CodeGenerator *cg) { return NULL; }
 };
 
-class StmtBlock : public Stmt 
+class StmtBlock : public Stmt
 {
   protected:
     List<VarDecl*> *decls;
     List<Stmt*> *stmts;
-    
+
   public:
     StmtBlock(List<VarDecl*> *variableDeclarations, List<Stmt*> *statements);
+    Location* Emit(CodeGenerator *cg);
 };
 
   
@@ -66,52 +68,58 @@ class LoopStmt : public ConditionalStmt
             : ConditionalStmt(testExpr, body) {}
 };
 
-class ForStmt : public LoopStmt 
+class ForStmt : public LoopStmt
 {
   protected:
     Expr *init, *step;
-  
+
   public:
     ForStmt(Expr *init, Expr *test, Expr *step, Stmt *body);
+    Location* Emit(CodeGenerator *cg);
 };
 
-class WhileStmt : public LoopStmt 
+class WhileStmt : public LoopStmt
 {
   public:
     WhileStmt(Expr *test, Stmt *body) : LoopStmt(test, body) {}
+    Location* Emit(CodeGenerator *cg);
 };
 
-class IfStmt : public ConditionalStmt 
+class IfStmt : public ConditionalStmt
 {
   protected:
     Stmt *elseBody;
-  
+
   public:
     IfStmt(Expr *test, Stmt *thenBody, Stmt *elseBody);
+    Location* Emit(CodeGenerator *cg);
 };
 
-class BreakStmt : public Stmt 
+class BreakStmt : public Stmt
 {
   public:
     BreakStmt(yyltype loc) : Stmt(loc) {}
+    Location* Emit(CodeGenerator *cg);
 };
 
-class ReturnStmt : public Stmt  
+class ReturnStmt : public Stmt
 {
   protected:
     Expr *expr;
-  
+
   public:
     ReturnStmt(yyltype loc, Expr *expr);
+    Location* Emit(CodeGenerator *cg);
 };
 
 class PrintStmt : public Stmt
 {
   protected:
     List<Expr*> *args;
-    
+
   public:
     PrintStmt(List<Expr*> *arguments);
+    Location* Emit(CodeGenerator *cg);
 };
 
 

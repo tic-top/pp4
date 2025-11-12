@@ -19,26 +19,32 @@
 class Identifier;
 class Stmt;
 
-class Decl : public Node 
+class Decl : public Node
 {
   protected:
     Identifier *id;
-  
+
   public:
     Decl(Identifier *name);
+    Identifier *GetId() { return id; }
     friend std::ostream& operator<<(std::ostream& out, Decl *d) { return out << d->id; }
 };
 
-class VarDecl : public Decl 
+class VarDecl : public Decl
 {
   protected:
     Type *type;
-    
+    Location *location;
+
   public:
     VarDecl(Identifier *name, Type *type);
+    void SetLocation(Location *loc) { location = loc; }
+    Location *GetEmitLocation() { return location; }
+    Type *GetType() { return type; }
+    void Emit(CodeGenerator *cg);
 };
 
-class ClassDecl : public Decl 
+class ClassDecl : public Decl
 {
   protected:
     List<Decl*> *members;
@@ -46,8 +52,9 @@ class ClassDecl : public Decl
     List<NamedType*> *implements;
 
   public:
-    ClassDecl(Identifier *name, NamedType *extends, 
+    ClassDecl(Identifier *name, NamedType *extends,
               List<NamedType*> *implements, List<Decl*> *members);
+    void Emit(CodeGenerator *cg);
 };
 
 class InterfaceDecl : public Decl 
@@ -59,16 +66,17 @@ class InterfaceDecl : public Decl
     InterfaceDecl(Identifier *name, List<Decl*> *members);
 };
 
-class FnDecl : public Decl 
+class FnDecl : public Decl
 {
   protected:
     List<VarDecl*> *formals;
     Type *returnType;
     Stmt *body;
-    
+
   public:
     FnDecl(Identifier *name, Type *returnType, List<VarDecl*> *formals);
     void SetFunctionBody(Stmt *b);
+    void Emit(CodeGenerator *cg);
 };
 
 #endif

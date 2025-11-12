@@ -6,6 +6,9 @@
 #include "ast_type.h"
 #include "ast_decl.h"
 #include "ast_expr.h"
+#include "codegen.h"
+#include "errors.h"
+#include <string.h>
 
 
 Program::Program(List<Decl*> *d) {
@@ -27,6 +30,55 @@ void Program::Emit() {
      *      which makes for a great use of inheritance and
      *      polymorphism in the node classes.
      */
+
+    // Create global code generator
+    CodeGenerator *cg = new CodeGenerator();
+
+    bool foundMain = false;
+
+    // First pass: assign locations to global variables and emit vtables
+    for (int i = 0; i < decls->NumElements(); i++) {
+        Decl *decl = decls->Nth(i);
+
+        // Global variable
+        VarDecl *varDecl = dynamic_cast<VarDecl*>(decl);
+        if (varDecl) {
+            Location *loc = cg->GenGlobalVar(varDecl->GetId()->GetName());
+            varDecl->SetLocation(loc);
+            continue;
+        }
+
+        // Class declaration - emit vtable
+        ClassDecl *classDecl = dynamic_cast<ClassDecl*>(decl);
+        if (classDecl) {
+            classDecl->Emit(cg);
+            continue;
+        }
+    }
+
+    // Second pass: emit function code
+    for (int i = 0; i < decls->NumElements(); i++) {
+        Decl *decl = decls->Nth(i);
+
+        // Function declaration
+        FnDecl *fnDecl = dynamic_cast<FnDecl*>(decl);
+        if (fnDecl) {
+            const char *fname = fnDecl->GetId()->GetName();
+            if (strcmp(fname, "main") == 0) {
+                foundMain = true;
+            }
+            fnDecl->Emit(cg);
+            continue;
+        }
+    }
+
+    // Check if main exists
+    if (!foundMain) {
+        ReportError::NoMainFound();
+    }
+
+    // Generate final MIPS code
+    cg->DoFinalCodeGen();
 }
 
 StmtBlock::StmtBlock(List<VarDecl*> *d, List<Stmt*> *s) {
@@ -59,9 +111,185 @@ ReturnStmt::ReturnStmt(yyltype loc, Expr *e) : Stmt(loc) {
     (expr=e)->SetParent(this);
 }
   
-PrintStmt::PrintStmt(List<Expr*> *a) {    
+PrintStmt::PrintStmt(List<Expr*> *a) {
     Assert(a != NULL);
     (args=a)->SetParentAll(this);
+}
+
+// StmtBlock Emit
+Location* StmtBlock::Emit(CodeGenerator *cg) {
+    // Assign locations to local variables and add to symbol table
+    for (int i = 0; i < decls->NumElements(); i++) {
+        VarDecl *var = decls->Nth(i);
+        Location *loc = cg->GenLocalVar(var->GetId()->GetName());
+        var->SetLocation(loc);
+        cg->AddVariable(var->GetId()->GetName(), loc);
+        cg->AddVarDecl(var->GetId()->GetName(), var);
+    }
+
+    // Emit all statements
+    for (int i = 0; i < stmts->NumElements(); i++) {
+        stmts->Nth(i)->Emit(cg);
+    }
+    return NULL;
+}
+
+// IfStmt Emit
+Location* IfStmt::Emit(CodeGenerator *cg) {
+    // Emit test expression
+    Location *testLoc = test->Emit(cg);
+
+    char *elseLabel = cg->NewLabel();
+    char *endLabel = cg->NewLabel();
+
+    // If test is zero, jump to else
+    cg->GenIfZ(testLoc, elseLabel);
+
+    // Emit then body
+    body->Emit(cg);
+    cg->GenGoto(endLabel);
+
+    // Emit else body
+    cg->GenLabel(elseLabel);
+    if (elseBody) {
+        elseBody->Emit(cg);
+    }
+
+    cg->GenLabel(endLabel);
+    return NULL;
+}
+
+// WhileStmt Emit
+Location* WhileStmt::Emit(CodeGenerator *cg) {
+    char *startLabel = cg->NewLabel();
+    char *endLabel = cg->NewLabel();
+
+    // Push end label for break statements
+    cg->PushLoopEndLabel(endLabel);
+
+    // Loop start
+    cg->GenLabel(startLabel);
+
+    // Emit test
+    Location *testLoc = test->Emit(cg);
+    cg->GenIfZ(testLoc, endLabel);
+
+    // Emit body
+    body->Emit(cg);
+
+    // Jump back to start
+    cg->GenGoto(startLabel);
+
+    // Loop end
+    cg->GenLabel(endLabel);
+
+    // Pop end label
+    cg->PopLoopEndLabel();
+    return NULL;
+}
+
+// ForStmt Emit
+Location* ForStmt::Emit(CodeGenerator *cg) {
+    // Emit init
+    init->Emit(cg);
+
+    char *startLabel = cg->NewLabel();
+    char *endLabel = cg->NewLabel();
+
+    // Push end label for break statements
+    cg->PushLoopEndLabel(endLabel);
+
+    // Loop start
+    cg->GenLabel(startLabel);
+
+    // Emit test
+    Location *testLoc = test->Emit(cg);
+    cg->GenIfZ(testLoc, endLabel);
+
+    // Emit body
+    body->Emit(cg);
+
+    // Emit step
+    step->Emit(cg);
+
+    // Jump back to start
+    cg->GenGoto(startLabel);
+
+    // Loop end
+    cg->GenLabel(endLabel);
+
+    // Pop end label
+    cg->PopLoopEndLabel();
+    return NULL;
+}
+
+// BreakStmt Emit
+Location* BreakStmt::Emit(CodeGenerator *cg) {
+    const char *endLabel = cg->GetCurrentLoopEndLabel();
+    if (endLabel) {
+        cg->GenGoto(endLabel);
+    }
+    // If no loop, this is a semantic error, but we don't handle it in code generation
+    return NULL;
+}
+
+// ReturnStmt Emit
+Location* ReturnStmt::Emit(CodeGenerator *cg) {
+    if (expr) {
+        Location *retVal = expr->Emit(cg);
+        cg->GenReturn(retVal);
+    } else {
+        cg->GenReturn();
+    }
+    return NULL;
+}
+
+// PrintStmt Emit
+Location* PrintStmt::Emit(CodeGenerator *cg) {
+    for (int i = 0; i < args->NumElements(); i++) {
+        Expr *arg = args->Nth(i);
+        Location *argLoc = arg->Emit(cg);
+
+        // Determine the correct print function based on type
+        bool isString = false;
+        bool isBool = false;
+
+        // Check if it's a string constant
+        StringConstant *sc = dynamic_cast<StringConstant*>(arg);
+        if (sc) {
+            isString = true;
+        } else {
+            // Check if it's a variable - look up type in symbol table
+            FieldAccess *fa = dynamic_cast<FieldAccess*>(arg);
+            if (fa && fa->base == NULL) {
+                // Simple variable access
+                VarDecl *decl = cg->GetVarDecl(fa->field->GetName());
+                if (decl) {
+                    Type *type = decl->GetType();
+                    if (type == Type::stringType) {
+                        isString = true;
+                    } else if (type == Type::boolType) {
+                        isBool = true;
+                    }
+                }
+            }
+            // Check for bool constant
+            BoolConstant *bc = dynamic_cast<BoolConstant*>(arg);
+            if (bc) {
+                isBool = true;
+            }
+        }
+
+        // Call the appropriate print function
+        if (isString) {
+            cg->GenBuiltInCall(PrintString, argLoc);
+        } else if (isBool) {
+            cg->GenBuiltInCall(PrintBool, argLoc);
+        } else {
+            cg->GenBuiltInCall(PrintInt, argLoc);
+        }
+    }
+    return NULL;
 }
 
 

@@ -28,8 +28,9 @@ int main(int argc, char *argv[])
     InitScanner();
     InitParser();
     yyparse();
-    if (ReportError::NumErrors() == 0)
-	SysCallCodeGen();
+    // SysCallCodeGen is now called from Program::Emit via DoFinalCodeGen
+    // if (ReportError::NumErrors() == 0)
+    //     SysCallCodeGen();
     return (ReportError::NumErrors() == 0? 0 : -1);
 }
 

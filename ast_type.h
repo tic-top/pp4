@@ -34,14 +34,15 @@ class Type : public Node
     virtual bool IsEquivalentTo(Type *other) { return this == other; }
 };
 
-class NamedType : public Type 
+class NamedType : public Type
 {
   protected:
     Identifier *id;
-    
+
   public:
     NamedType(Identifier *i);
-    
+    Identifier *GetId() { return id; }
+
     void PrintToStream(std::ostream& out) { out << id; }
 };
 
