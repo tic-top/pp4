@@ -16,8 +16,9 @@ CodeGenerator::CodeGenerator()
   curStackOffset = OffsetToFirstLocal;
   globalOffset = OffsetToFirstGlobal;
   loopEndLabels = new List<const char*>();
-  varLocations = new Hashtable<Location*>();
-  varDecls = new Hashtable<VarDecl*>();
+  varLocationStack = new List<Hashtable<Location*>*>();
+  varDeclStack = new List<Hashtable<VarDecl*>*>();
+  PushScope(); // global scope
 }
 
 char *CodeGenerator::NewLabel()
@@ -308,13 +309,30 @@ void CodeGenerator::EmitBuiltIns()
     printf("          sw $fp, 8($sp)        # save fp\n");
     printf("          sw $ra, 4($sp)        # save ra\n");
     printf("          addiu $fp, $sp, 8     # set up new fp\n");
-    printf("          li $a0, 101\n");
-    printf("          li $v0, 9\n");
+    printf("          li $a0, 101           # bytes to allocate\n");
+    printf("          li $v0, 9             # sbrk\n");
     printf("          syscall\n");
-    printf("          addu $a0, $v0, $zero  # copy allocated memory reference to $a0\n");
-    printf("          li $a1, 101           # read 100 + null terminator\n");
+    printf("          move $t0, $v0         # save buffer pointer\n");
+    printf("          move $a0, $v0         # buffer address for ReadString\n");
+    printf("          li $a1, 101           # read up to 100 chars + null\n");
     printf("          li $v0, 8             # ReadString syscall\n");
     printf("          syscall\n");
+    printf("      _ReadLine_trim:\n");
+    printf("          move $t1, $t0         # iterator\n");
+    printf("      _ReadLine_loop:\n");
+    printf("          lb $t2, 0($t1)\n");
+    printf("          beqz $t2, _ReadLine_done\n");
+    printf("          li $t3, 10            # '\\n'\n");
+    printf("          beq $t2, $t3, _ReadLine_strip\n");
+    printf("          li $t3, 13            # '\\r'\n");
+    printf("          beq $t2, $t3, _ReadLine_strip\n");
+    printf("          addiu $t1, $t1, 1\n");
+    printf("          j _ReadLine_loop\n");
+    printf("      _ReadLine_strip:\n");
+    printf("          sb $zero, 0($t1)\n");
+    printf("          j _ReadLine_done\n");
+    printf("      _ReadLine_done:\n");
+    printf("          move $v0, $t0         # return buffer pointer\n");
     printf("        # EndFunc\n");
     printf("        # (below handles reaching end of fn body with no explicit return)\n");
     printf("          move $sp, $fp         # pop callee frame off stack\n");
@@ -402,32 +420,72 @@ const char *CodeGenerator::GetCurrentLoopEndLabel()
 
 void CodeGenerator::AddVariable(const char *name, Location *loc)
 {
-  varLocations->Enter(name, loc);
+  Assert(varLocationStack->NumElements() > 0);
+  varLocationStack->Nth(varLocationStack->NumElements()-1)->Enter(name, loc);
+}
+
+void CodeGenerator::AddGlobalVariable(const char *name, Location *loc)
+{
+  Assert(varLocationStack->NumElements() > 0);
+  varLocationStack->Nth(0)->Enter(name, loc);
 }
 
 void CodeGenerator::AddVarDecl(const char *name, VarDecl *decl)
 {
-  varDecls->Enter(name, decl);
+  Assert(varDeclStack->NumElements() > 0);
+  varDeclStack->Nth(varDeclStack->NumElements()-1)->Enter(name, decl);
+}
+
+void CodeGenerator::AddGlobalVarDecl(const char *name, VarDecl *decl)
+{
+  Assert(varDeclStack->NumElements() > 0);
+  varDeclStack->Nth(0)->Enter(name, decl);
 }
 
 Location *CodeGenerator::GetVariable(const char *name)
 {
-  Location *loc = varLocations->Lookup(name);
-  return loc;
+  for (int i = varLocationStack->NumElements() - 1; i >= 0; i--) {
+    Location *loc = varLocationStack->Nth(i)->Lookup(name);
+    if (loc) return loc;
+  }
+  return NULL;
 }
 
 VarDecl *CodeGenerator::GetVarDecl(const char *name)
 {
-  VarDecl *decl = varDecls->Lookup(name);
-  return decl;
+  for (int i = varDeclStack->NumElements() - 1; i >= 0; i--) {
+    VarDecl *decl = varDeclStack->Nth(i)->Lookup(name);
+    if (decl) return decl;
+  }
+  return NULL;
 }
 
 void CodeGenerator::ClearVariables()
 {
-  delete varLocations;
-  varLocations = new Hashtable<Location*>();
-  delete varDecls;
-  varDecls = new Hashtable<VarDecl*>();
+  while (varLocationStack->NumElements() > 1) {
+    delete varLocationStack->Nth(varLocationStack->NumElements()-1);
+    varLocationStack->RemoveAt(varLocationStack->NumElements()-1);
+  }
+  while (varDeclStack->NumElements() > 1) {
+    delete varDeclStack->Nth(varDeclStack->NumElements()-1);
+    varDeclStack->RemoveAt(varDeclStack->NumElements()-1);
+  }
 }
 
+void CodeGenerator::PushScope()
+{
+  varLocationStack->Append(new Hashtable<Location*>());
+  varDeclStack->Append(new Hashtable<VarDecl*>());
+}
 
+void CodeGenerator::PopScope()
+{
+  if (varLocationStack->NumElements() > 1) {
+    delete varLocationStack->Nth(varLocationStack->NumElements()-1);
+    varLocationStack->RemoveAt(varLocationStack->NumElements()-1);
+  }
+  if (varDeclStack->NumElements() > 1) {
+    delete varDeclStack->Nth(varDeclStack->NumElements()-1);
+    varDeclStack->RemoveAt(varDeclStack->NumElements()-1);
+  }
+}

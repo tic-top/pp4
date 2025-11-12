@@ -49,8 +49,12 @@ for sample in samples/*.decaf; do
             fi
         fi
         
-        # Run with timeout
-        timeout 2 spim -file "test_results/$base.asm" > "test_results/$base.out" 2>&1
+        # Run with timeout (feed input file if available)
+        if [ -f "samples/$base.in" ]; then
+            timeout 2 spim -file "test_results/$base.asm" < "samples/$base.in" > "test_results/$base.out" 2>&1
+        else
+            timeout 2 spim -file "test_results/$base.asm" > "test_results/$base.out" 2>&1
+        fi
         exit_code=$?
         
         if [ $exit_code -eq 124 ]; then

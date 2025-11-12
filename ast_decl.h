@@ -14,10 +14,12 @@
 
 #include "ast.h"
 #include "ast_type.h"
+#include "hashtable.h"
 #include "list.h"
 
 class Identifier;
 class Stmt;
+class FnDecl;
 
 class Decl : public Node
 {
@@ -50,11 +52,27 @@ class ClassDecl : public Decl
     List<Decl*> *members;
     NamedType *extends;
     List<NamedType*> *implements;
+    List<VarDecl*> *orderedFields;
+    List<FnDecl*> *orderedMethods;
+    bool layoutPrepared;
+    NamedType *classType;
+    static Hashtable<ClassDecl*> *classTable;
 
   public:
     ClassDecl(Identifier *name, NamedType *extends,
               List<NamedType*> *implements, List<Decl*> *members);
     void Emit(CodeGenerator *cg);
+    static void RegisterClass(ClassDecl *decl);
+    static ClassDecl *LookupClass(const char *name);
+    NamedType *GetClassType() { return classType; }
+    void PrepareLayout();
+    int GetFieldOffset(const char *fieldName);
+    int GetFieldCount();
+    VarDecl *GetFieldDecl(const char *fieldName);
+    FnDecl *GetMethodDecl(const char *methodName);
+    int GetMethodIndex(const char *methodName);
+    List<VarDecl*> *GetOrderedFields() { return orderedFields; }
+    List<FnDecl*> *GetOrderedMethods() { return orderedMethods; }
 };
 
 class InterfaceDecl : public Decl 
@@ -72,11 +90,16 @@ class FnDecl : public Decl
     List<VarDecl*> *formals;
     Type *returnType;
     Stmt *body;
+    static Hashtable<FnDecl*> *fnTable;
 
   public:
     FnDecl(Identifier *name, Type *returnType, List<VarDecl*> *formals);
     void SetFunctionBody(Stmt *b);
     void Emit(CodeGenerator *cg);
+    static void RegisterFunction(FnDecl *fn);
+    static FnDecl *LookupFunction(const char *name);
+    Type *GetReturnType() { return returnType; }
+    List<VarDecl*> *GetFormals() { return formals; }
 };
 
 #endif

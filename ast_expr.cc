@@ -9,6 +9,32 @@
 #include "errors.h"
 #include <string.h>
 
+static FnDecl *FindEnclosingFunction(Node *node) {
+    while (node && !dynamic_cast<FnDecl*>(node))
+        node = node->GetParent();
+    return dynamic_cast<FnDecl*>(node);
+}
+
+static ClassDecl *FindEnclosingClass(Node *node) {
+    while (node && !dynamic_cast<ClassDecl*>(node))
+        node = node->GetParent();
+    return dynamic_cast<ClassDecl*>(node);
+}
+
+static const char *GetClassName(Type *type) {
+    if (!type) return NULL;
+    NamedType *nt = dynamic_cast<NamedType*>(type);
+    if (!nt) return NULL;
+    return nt->GetId()->GetName();
+}
+
+static bool IsStringType(Type *type) {
+    if (!type) return false;
+    if (type == Type::stringType) return true;
+    NamedType *nt = dynamic_cast<NamedType*>(type);
+    return nt && strcmp(nt->GetId()->GetName(), "string") == 0;
+}
+
 
 IntConstant::IntConstant(yyltype loc, int val) : Expr(loc) {
     value = val;
@@ -81,22 +107,27 @@ NewArrayExpr::NewArrayExpr(yyltype loc, Expr *sz, Type *et) : Expr(loc) {
     Assert(sz != NULL && et != NULL);
     (size=sz)->SetParent(this);
     (elemType=et)->SetParent(this);
+    arrayType = NULL;
 }
 
 // Constant expressions
 Location *IntConstant::Emit(CodeGenerator *cg) {
+    SetResultType(Type::intType);
     return cg->GenLoadConstant(value);
 }
 
 Location *BoolConstant::Emit(CodeGenerator *cg) {
+    SetResultType(Type::boolType);
     return cg->GenLoadConstant(value ? 1 : 0);
 }
 
 Location *StringConstant::Emit(CodeGenerator *cg) {
+    SetResultType(Type::stringType);
     return cg->GenLoadConstant(value);
 }
 
 Location *NullConstant::Emit(CodeGenerator *cg) {
+    SetResultType(Type::nullType);
     return cg->GenLoadConstant(0);
 }
 
@@ -112,6 +143,7 @@ Location *ArithmeticExpr::Emit(CodeGenerator *cg) {
     // Binary arithmetic operation
     Location *leftLoc = left->Emit(cg);
     Location *rightLoc = right->Emit(cg);
+    SetResultType(Type::intType);
     return cg->GenBinaryOp(op->GetTokenString(), leftLoc, rightLoc);
 }
 
@@ -139,6 +171,7 @@ Location *RelationalExpr::Emit(CodeGenerator *cg) {
         Location *result = cg->GenLoadConstant(1);
         return cg->GenBinaryOp("-", result, temp);
     }
+    SetResultType(Type::boolType);
     return NULL;
 }
 
@@ -147,16 +180,28 @@ Location *EqualityExpr::Emit(CodeGenerator *cg) {
     Location *leftLoc = left->Emit(cg);
     Location *rightLoc = right->Emit(cg);
     const char *opStr = op->GetTokenString();
+    Type *leftType = left->GetResultType();
+    Type *rightType = right->GetResultType();
+    bool isString = IsStringType(leftType) && IsStringType(rightType);
 
-    // TAC only supports '==', need to transform '!='
-    if (strcmp(opStr, "==") == 0) {
-        // a == b : direct support
-        return cg->GenBinaryOp("==", leftLoc, rightLoc);
-    } else if (strcmp(opStr, "!=") == 0) {
-        // a != b : !(a == b) which is 1 - (a == b)
-        Location *temp = cg->GenBinaryOp("==", leftLoc, rightLoc);
-        Location *one = cg->GenLoadConstant(1);
-        return cg->GenBinaryOp("-", one, temp);
+    SetResultType(Type::boolType);
+
+    if (isString) {
+        Location *cmp = cg->GenBuiltInCall(StringEqual, leftLoc, rightLoc);
+        if (strcmp(opStr, "==") == 0) {
+            return cmp;
+        } else if (strcmp(opStr, "!=") == 0) {
+            Location *one = cg->GenLoadConstant(1);
+            return cg->GenBinaryOp("-", one, cmp);
+        }
+    } else {
+        if (strcmp(opStr, "==") == 0) {
+            return cg->GenBinaryOp("==", leftLoc, rightLoc);
+        } else if (strcmp(opStr, "!=") == 0) {
+            Location *temp = cg->GenBinaryOp("==", leftLoc, rightLoc);
+            Location *one = cg->GenLoadConstant(1);
+            return cg->GenBinaryOp("-", one, temp);
+        }
     }
     return NULL;
 }
@@ -167,6 +212,7 @@ Location *LogicalExpr::Emit(CodeGenerator *cg) {
     if (left == NULL && strcmp(op->GetTokenString(), "!") == 0) {
         Location *rightLoc = right->Emit(cg);
         Location *zero = cg->GenLoadConstant(0);
+        SetResultType(Type::boolType);
         return cg->GenBinaryOp("==", rightLoc, zero);
     }
 
@@ -191,6 +237,7 @@ Location *LogicalExpr::Emit(CodeGenerator *cg) {
         cg->GenAssign(result, falseLoc);
 
         cg->GenLabel(endLabel);
+        SetResultType(Type::boolType);
         return result;
     }
 
@@ -215,27 +262,34 @@ Location *LogicalExpr::Emit(CodeGenerator *cg) {
         cg->GenAssign(result, rightLoc);
 
         cg->GenLabel(endLabel);
+        SetResultType(Type::boolType);
         return result;
     }
 
     // Fallback: regular binary operation
     Location *leftLoc = left->Emit(cg);
     Location *rightLoc = right->Emit(cg);
+    SetResultType(Type::boolType);
     return cg->GenBinaryOp(op->GetTokenString(), leftLoc, rightLoc);
 }
 
 // This expression
 Location *This::Emit(CodeGenerator *cg) {
     // "this" is always at fp+4 for methods
-    return new Location(fpRelative, CodeGenerator::OffsetToFirstParam, "this");
+    Location *loc = new Location(fpRelative, CodeGenerator::OffsetToFirstParam, "this");
+    ClassDecl *cls = FindEnclosingClass(this);
+    if (cls) SetResultType(cls->GetClassType());
+    return loc;
 }
 
 // ReadInteger and ReadLine
 Location *ReadIntegerExpr::Emit(CodeGenerator *cg) {
+    SetResultType(Type::intType);
     return cg->GenBuiltInCall(ReadInteger);
 }
 
 Location *ReadLineExpr::Emit(CodeGenerator *cg) {
+    SetResultType(Type::stringType);
     return cg->GenBuiltInCall(ReadLine);
 }
 
@@ -243,6 +297,7 @@ Location *ReadLineExpr::Emit(CodeGenerator *cg) {
 Location *AssignExpr::Emit(CodeGenerator *cg) {
     // Emit the right-hand side first
     Location *rhsLoc = right->Emit(cg);
+    Type *rhsType = right->GetResultType();
 
     // Handle different types of lvalues
     FieldAccess *fa = dynamic_cast<FieldAccess*>(left);
@@ -253,12 +308,44 @@ Location *AssignExpr::Emit(CodeGenerator *cg) {
         Location *varLoc = cg->GetVariable(fa->field->GetName());
         if (varLoc) {
             cg->GenAssign(varLoc, rhsLoc);
-            return varLoc;
+            SetResultType(rhsType);
+            return rhsLoc;
+        }
+        ClassDecl *cls = FindEnclosingClass(this);
+        if (cls) {
+            int offset = cls->GetFieldOffset(fa->field->GetName());
+            if (offset >= 0) {
+                Location *thisLoc = new Location(fpRelative, CodeGenerator::OffsetToFirstParam, "this");
+                cg->GenStore(thisLoc, rhsLoc, offset);
+                SetResultType(rhsType);
+                return rhsLoc;
+            }
         }
     } else if (aa) {
-        // Array element assignment
+        // Array element assignment - need bounds checking
         Location *baseLoc = aa->base->Emit(cg);
         Location *indexLoc = aa->subscript->Emit(cg);
+
+        // Add bounds checking
+        Location *errMsg = cg->GenLoadConstant(err_arr_out_of_bounds);
+        Location *zero = cg->GenLoadConstant(0);
+        Location *isNeg = cg->GenBinaryOp("<", indexLoc, zero);
+        char *nonNegLabel = cg->NewLabel();
+        cg->GenIfZ(isNeg, nonNegLabel);
+        cg->GenBuiltInCall(PrintString, errMsg);
+        cg->GenBuiltInCall(Halt);
+        cg->GenLabel(nonNegLabel);
+
+        Location *length = cg->GenLoad(baseLoc, 0);
+        Location *inRange = cg->GenBinaryOp("<", indexLoc, length);
+        char *rangeOkLabel = cg->NewLabel();
+        char *rangeErrorLabel = cg->NewLabel();
+        cg->GenIfZ(inRange, rangeErrorLabel);
+        cg->GenGoto(rangeOkLabel);
+        cg->GenLabel(rangeErrorLabel);
+        cg->GenBuiltInCall(PrintString, errMsg);
+        cg->GenBuiltInCall(Halt);
+        cg->GenLabel(rangeOkLabel);
 
         // Compute address: base + (index + 1) * 4
         Location *one = cg->GenLoadConstant(1);
@@ -269,16 +356,24 @@ Location *AssignExpr::Emit(CodeGenerator *cg) {
 
         // Store value at computed address
         cg->GenStore(addr, rhsLoc, 0);
+        SetResultType(rhsType);
         return rhsLoc;
     } else if (fa) {
         // Object field assignment
         Location *baseLoc = fa->base->Emit(cg);
-        // Store to field offset (simplified)
-        cg->GenStore(baseLoc, rhsLoc, 4);
-        return rhsLoc;
+        Type *baseType = fa->base->GetResultType();
+        const char *className = GetClassName(baseType);
+        ClassDecl *cls = className ? ClassDecl::LookupClass(className) : NULL;
+        int offset = cls ? cls->GetFieldOffset(fa->field->GetName()) : -1;
+        if (offset >= 0) {
+            cg->GenStore(baseLoc, rhsLoc, offset);
+            SetResultType(rhsType);
+            return rhsLoc;
+        }
     }
 
     // Fallback
+    SetResultType(rhsType);
     return rhsLoc;
 }
 
@@ -287,63 +382,93 @@ Location *ArrayAccess::Emit(CodeGenerator *cg) {
     Location *baseLoc = base->Emit(cg);
     Location *indexLoc = subscript->Emit(cg);
 
-    // Array layout: [length at offset 0][elem0 at offset 4][elem1 at offset 8]...
-    // First, load the length and check bounds
-    Location *length = cg->GenLoad(baseLoc, 0);
-
-    // Check if index < 0
-    Location *zero = cg->GenLoadConstant(0);
-    Location *negCheck = cg->GenBinaryOp("<", indexLoc, zero);
-    char *okLabel1 = cg->NewLabel();
-    cg->GenIfZ(negCheck, okLabel1);
-    // Index is negative - runtime error
     Location *errMsg = cg->GenLoadConstant(err_arr_out_of_bounds);
+    Location *zero = cg->GenLoadConstant(0);
+
+    // Null base check
+    Location *isNull = cg->GenBinaryOp("==", baseLoc, zero);
+    char *nonNullLabel = cg->NewLabel();
+    cg->GenIfZ(isNull, nonNullLabel);
     cg->GenBuiltInCall(PrintString, errMsg);
     cg->GenBuiltInCall(Halt);
-    cg->GenLabel(okLabel1);
+    cg->GenLabel(nonNullLabel);
 
-    // Check if index >= length
-    Location *upperCheck = cg->GenBinaryOp("<", indexLoc, length);
-    char *okLabel2 = cg->NewLabel();
+    Location *isNeg = cg->GenBinaryOp("<", indexLoc, zero);
+    char *nonNegLabel = cg->NewLabel();
+    cg->GenIfZ(isNeg, nonNegLabel);
+    cg->GenBuiltInCall(PrintString, errMsg);
+    cg->GenBuiltInCall(Halt);
+    cg->GenLabel(nonNegLabel);
+
+    Location *length = cg->GenLoad(baseLoc, 0);
+    Location *inRange = cg->GenBinaryOp("<", indexLoc, length);
+    char *rangeOkLabel = cg->NewLabel();
+    char *rangeErrorLabel = cg->NewLabel();
+    cg->GenIfZ(inRange, rangeErrorLabel);
+    cg->GenGoto(rangeOkLabel);
+    cg->GenLabel(rangeErrorLabel);
+    cg->GenBuiltInCall(PrintString, errMsg);
+    cg->GenBuiltInCall(Halt);
+    cg->GenLabel(rangeOkLabel);
+
     Location *one = cg->GenLoadConstant(1);
-    Location *upperCheckInv = cg->GenBinaryOp("==", upperCheck, zero);
-    cg->GenIfZ(upperCheckInv, okLabel2);
-    // Index out of bounds - runtime error
-    cg->GenBuiltInCall(PrintString, errMsg);
-    cg->GenBuiltInCall(Halt);
-    cg->GenLabel(okLabel2);
-
-    // Compute address: base + (index + 1) * 4
     Location *adjustedIndex = cg->GenBinaryOp("+", indexLoc, one);
     Location *four = cg->GenLoadConstant(4);
     Location *offset = cg->GenBinaryOp("*", adjustedIndex, four);
     Location *addr = cg->GenBinaryOp("+", baseLoc, offset);
-
-    // Load the element value
+    Type *baseType = base->GetResultType();
+    ArrayType *arrayType = baseType ? dynamic_cast<ArrayType*>(baseType) : NULL;
+    if (arrayType) SetResultType(arrayType->GetElemType());
     return cg->GenLoad(addr, 0);
 }
 
 // Field access
 Location *FieldAccess::Emit(CodeGenerator *cg) {
     if (base == NULL) {
-        // Simple variable reference - lookup in symbol table
         Location *loc = cg->GetVariable(field->GetName());
         if (loc) {
+            VarDecl *decl = cg->GetVarDecl(field->GetName());
+            if (decl) SetResultType(decl->GetType());
             return loc;
         }
-        // Variable not found - this shouldn't happen if semantic analysis passed
-        // Return a temp as fallback
+        ClassDecl *cls = FindEnclosingClass(this);
+        if (cls) {
+            VarDecl *fieldDecl = cls->GetFieldDecl(field->GetName());
+            if (fieldDecl) {
+                int offset = cls->GetFieldOffset(field->GetName());
+                Location *thisLoc = new Location(fpRelative, CodeGenerator::OffsetToFirstParam, "this");
+                SetResultType(fieldDecl->GetType());
+                return cg->GenLoad(thisLoc, offset);
+            }
+        }
         return cg->GenTempVar();
     }
 
-    // obj.field
     Location *baseLoc = base->Emit(cg);
-    // Load from field offset (simplified - would need class layout info)
-    return cg->GenLoad(baseLoc, 4);
+    Type *baseType = base->GetResultType();
+    const char *className = GetClassName(baseType);
+    ClassDecl *cls = className ? ClassDecl::LookupClass(className) : NULL;
+    if (cls) {
+        VarDecl *fieldDecl = cls->GetFieldDecl(field->GetName());
+        if (fieldDecl) {
+            int offset = cls->GetFieldOffset(field->GetName());
+            SetResultType(fieldDecl->GetType());
+            return cg->GenLoad(baseLoc, offset);
+        }
+    }
+    return cg->GenTempVar();
 }
 
 // Function/method call
 Location *Call::Emit(CodeGenerator *cg) {
+    // Handle arr.length() specially
+    if (base && strcmp(field->GetName(), "length") == 0 &&
+        actuals->NumElements() == 0) {
+        Location *arrLoc = base->Emit(cg);
+        SetResultType(Type::intType);
+        return cg->GenLoad(arrLoc, 0);
+    }
+
     // Push parameters right-to-left
     for (int i = actuals->NumElements() - 1; i >= 0; i--) {
         Location *argLoc = actuals->Nth(i)->Emit(cg);
@@ -352,45 +477,77 @@ Location *Call::Emit(CodeGenerator *cg) {
 
     Location *result = NULL;
 
+    int totalParams = actuals->NumElements();
+    const char *fname = field->GetName();
+
     if (base == NULL) {
-        // Simple function call
-        // Build label: for "test" -> "_test", for "main" -> "main"
-        char label[256];
-        const char *fname = field->GetName();
-        if (strcmp(fname, "main") == 0) {
-            strcpy(label, "main");
-        } else {
-            sprintf(label, "_%s", fname);
+        FnDecl *fnDecl = FnDecl::LookupFunction(fname);
+        if (fnDecl) {
+            char label[256];
+            if (strcmp(fname, "main") == 0) {
+                strcpy(label, "main");
+            } else {
+                sprintf(label, "_%s", fname);
+            }
+            bool hasReturn = fnDecl->GetReturnType() != Type::voidType;
+            result = cg->GenLCall(label, hasReturn);
+            if (hasReturn) SetResultType(fnDecl->GetReturnType());
+            else SetResultType(Type::voidType);
+            cg->GenPopParams(totalParams * CodeGenerator::VarSize);
+            return result;
         }
-        result = cg->GenLCall(label, true);
-    } else {
-        // Method call through object
-        // Need to push "this" pointer first
-        Location *objLoc = base->Emit(cg);
-        cg->GenPushParam(objLoc);
-
-        // Load vtable pointer from object
-        Location *vtablePtr = cg->GenLoad(objLoc, 0);
-
-        // Load method address from vtable (simplified - would need method index)
-        Location *methodAddr = cg->GenLoad(vtablePtr, 0);
-
-        result = cg->GenACall(methodAddr, true);
     }
 
-    // Pop parameters
-    int numParams = actuals->NumElements();
-    if (base != NULL) numParams++;  // for "this"
-    cg->GenPopParams(numParams * CodeGenerator::VarSize);
+    // Method call (explicit base or implicit this)
+    bool implicitThis = (base == NULL);
+    Location *objLoc = NULL;
+    Type *receiverType = NULL;
+
+    if (base) {
+        objLoc = base->Emit(cg);
+        receiverType = base->GetResultType();
+    } else {
+        objLoc = new Location(fpRelative, CodeGenerator::OffsetToFirstParam, "this");
+        ClassDecl *cls = FindEnclosingClass(this);
+        receiverType = cls ? cls->GetClassType() : NULL;
+    }
+
+    const char *className = GetClassName(receiverType);
+    ClassDecl *cls = className ? ClassDecl::LookupClass(className) : NULL;
+    FnDecl *methodDecl = cls ? cls->GetMethodDecl(fname) : NULL;
+    int methodIndex = cls ? cls->GetMethodIndex(fname) : -1;
+    if (!cls || !methodDecl || methodIndex < 0) {
+        char label[256];
+        if (strcmp(fname, "main") == 0) strcpy(label, "main");
+        else sprintf(label, "_%s", fname);
+        bool fnReturn = true;
+        result = cg->GenLCall(label, fnReturn);
+        SetResultType(Type::voidType);
+        cg->GenPopParams(totalParams * CodeGenerator::VarSize);
+        return result;
+    }
+    bool hasReturn = methodDecl && methodDecl->GetReturnType() != Type::voidType;
+
+    cg->GenPushParam(objLoc);
+    totalParams++;
+
+    Location *vtablePtr = cg->GenLoad(objLoc, 0);
+    Location *methodAddr = cg->GenLoad(vtablePtr, methodIndex * CodeGenerator::VarSize);
+    result = cg->GenACall(methodAddr, hasReturn);
+    if (hasReturn) SetResultType(methodDecl->GetReturnType());
+    else SetResultType(Type::voidType);
+
+    cg->GenPopParams(totalParams * CodeGenerator::VarSize);
 
     return result;
 }
 
 // New expression (object allocation)
 Location *NewExpr::Emit(CodeGenerator *cg) {
-    // Simplified: allocate fixed size object (vtable + fields)
-    // Real implementation would need class size information
-    Location *size = cg->GenLoadConstant(8);  // vtable + one field
+    ClassDecl *cls = ClassDecl::LookupClass(cType->GetId()->GetName());
+    int fieldCount = cls ? cls->GetFieldCount() : 0;
+    int objectBytes = CodeGenerator::VarSize * (fieldCount + 1); // vtable ptr + fields
+    Location *size = cg->GenLoadConstant(objectBytes);
     Location *obj = cg->GenBuiltInCall(Alloc, size);
 
     // Set vtable pointer
@@ -399,6 +556,7 @@ Location *NewExpr::Emit(CodeGenerator *cg) {
     sprintf(vtableLabel, "%s", cType->GetId()->GetName());
     Location *vtable = cg->GenLoadLabel(vtableLabel);
     cg->GenStore(obj, vtable, 0);
+    SetResultType(cType);
 
     return obj;
 }
@@ -436,7 +594,14 @@ Location *NewArrayExpr::Emit(CodeGenerator *cg) {
 
     // Store length at offset 0
     cg->GenStore(arr, sizeLoc, 0);
+    if (!arrayType) {
+        yyltype loc;
+        if (this->GetLocation()) loc = *this->GetLocation();
+        else if (size->GetLocation()) loc = *size->GetLocation();
+        else memset(&loc, 0, sizeof(loc));
+        arrayType = new ArrayType(loc, Type::CopyType(elemType));
+    }
+    SetResultType(arrayType);
 
     return arr;
 }
-

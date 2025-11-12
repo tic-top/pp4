@@ -5,6 +5,20 @@
 #include "ast_type.h"
 #include "ast_decl.h"
 #include <string.h>
+
+static yyltype CopyNodeLocation(Node *node) {
+    if (node && node->GetLocation())
+        return *(node->GetLocation());
+    yyltype loc;
+    memset(&loc, 0, sizeof(loc));
+    return loc;
+}
+
+static Identifier *CloneIdentifier(Identifier *orig) {
+    if (orig == NULL) return NULL;
+    yyltype loc = CopyNodeLocation(orig);
+    return new Identifier(loc, orig->GetName());
+}
  
 /* Class constants
  * ---------------
@@ -41,4 +55,23 @@ ArrayType::ArrayType(yyltype loc, Type *et) : Type(loc) {
     (elemType=et)->SetParent(this);
 }
 
+Type *Type::CopyType(Type *type) {
+    if (type == NULL) return NULL;
+
+    ArrayType *arr = dynamic_cast<ArrayType*>(type);
+    if (arr) {
+        yyltype loc = CopyNodeLocation(arr);
+        Type *elemCopy = CopyType(arr->GetElemType());
+        return new ArrayType(loc, elemCopy);
+    }
+
+    NamedType *nt = dynamic_cast<NamedType*>(type);
+    if (nt) {
+        Identifier *idCopy = CloneIdentifier(nt->GetId());
+        yyltype loc = CopyNodeLocation(nt);
+        return new NamedType(idCopy);
+    }
+
+    return new Type(type->GetTypeName());
+}
 

@@ -10,6 +10,16 @@
 #include "errors.h"
 #include <string.h>
 
+static bool IsTypeName(Type *type, const char *target) {
+    if (!type || !target) return false;
+    const char *name = NULL;
+    NamedType *named = dynamic_cast<NamedType*>(type);
+    if (named) name = named->GetId()->GetName();
+    else name = type->GetTypeName();
+    if (!name) return false;
+    return strcmp(name, target) == 0;
+}
+
 
 Program::Program(List<Decl*> *d) {
     Assert(d != NULL);
@@ -36,6 +46,20 @@ void Program::Emit() {
 
     bool foundMain = false;
 
+    // Register classes and global functions
+    for (int i = 0; i < decls->NumElements(); i++) {
+        ClassDecl *classDecl = dynamic_cast<ClassDecl*>(decls->Nth(i));
+        if (classDecl) {
+            ClassDecl::RegisterClass(classDecl);
+        }
+    }
+    for (int i = 0; i < decls->NumElements(); i++) {
+        FnDecl *fnDecl = dynamic_cast<FnDecl*>(decls->Nth(i));
+        if (fnDecl && dynamic_cast<ClassDecl*>(fnDecl->GetParent()) == NULL) {
+            FnDecl::RegisterFunction(fnDecl);
+        }
+    }
+
     // First pass: assign locations to global variables and emit vtables
     for (int i = 0; i < decls->NumElements(); i++) {
         Decl *decl = decls->Nth(i);
@@ -45,6 +69,8 @@ void Program::Emit() {
         if (varDecl) {
             Location *loc = cg->GenGlobalVar(varDecl->GetId()->GetName());
             varDecl->SetLocation(loc);
+            cg->AddGlobalVariable(varDecl->GetId()->GetName(), loc);
+            cg->AddGlobalVarDecl(varDecl->GetId()->GetName(), varDecl);
             continue;
         }
 
@@ -118,6 +144,7 @@ PrintStmt::PrintStmt(List<Expr*> *a) {
 
 // StmtBlock Emit
 Location* StmtBlock::Emit(CodeGenerator *cg) {
+    cg->PushScope();
     // Assign locations to local variables and add to symbol table
     for (int i = 0; i < decls->NumElements(); i++) {
         VarDecl *var = decls->Nth(i);
@@ -131,6 +158,7 @@ Location* StmtBlock::Emit(CodeGenerator *cg) {
     for (int i = 0; i < stmts->NumElements(); i++) {
         stmts->Nth(i)->Emit(cg);
     }
+    cg->PopScope();
     return NULL;
 }
 
@@ -250,34 +278,12 @@ Location* PrintStmt::Emit(CodeGenerator *cg) {
         Expr *arg = args->Nth(i);
         Location *argLoc = arg->Emit(cg);
 
-        // Determine the correct print function based on type
-        bool isString = false;
-        bool isBool = false;
-
-        // Check if it's a string constant
-        StringConstant *sc = dynamic_cast<StringConstant*>(arg);
-        if (sc) {
-            isString = true;
-        } else {
-            // Check if it's a variable - look up type in symbol table
-            FieldAccess *fa = dynamic_cast<FieldAccess*>(arg);
-            if (fa && fa->base == NULL) {
-                // Simple variable access
-                VarDecl *decl = cg->GetVarDecl(fa->field->GetName());
-                if (decl) {
-                    Type *type = decl->GetType();
-                    if (type == Type::stringType) {
-                        isString = true;
-                    } else if (type == Type::boolType) {
-                        isBool = true;
-                    }
-                }
-            }
-            // Check for bool constant
-            BoolConstant *bc = dynamic_cast<BoolConstant*>(arg);
-            if (bc) {
-                isBool = true;
-            }
+        Type *argType = arg->GetResultType();
+        bool isString = IsTypeName(argType, "string");
+        bool isBool = IsTypeName(argType, "bool");
+        if (!argType) {
+            if (dynamic_cast<StringConstant*>(arg)) isString = true;
+            else if (dynamic_cast<BoolConstant*>(arg)) isBool = true;
         }
 
         // Call the appropriate print function
@@ -291,5 +297,3 @@ Location* PrintStmt::Emit(CodeGenerator *cg) {
     }
     return NULL;
 }
-
-

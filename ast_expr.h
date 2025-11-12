@@ -15,6 +15,7 @@
 
 #include "ast.h"
 #include "ast_stmt.h"
+#include "ast_type.h"
 #include "list.h"
 
 class NamedType; // for new
@@ -24,9 +25,13 @@ class Type; // for NewArray
 class Expr : public Stmt
 {
   public:
-    Expr(yyltype loc) : Stmt(loc) {}
-    Expr() : Stmt() {}
+    Expr(yyltype loc) : Stmt(loc), resultType(NULL) {}
+    Expr() : Stmt(), resultType(NULL) {}
     virtual Location *Emit(CodeGenerator *cg) { return NULL; }
+    Type *GetResultType() const { return resultType; }
+    void SetResultType(Type *t) { resultType = t; }
+  protected:
+    Type *resultType;
 };
 
 /* This node type is used for those places where an expression is optional.
@@ -211,6 +216,7 @@ class NewArrayExpr : public Expr
   protected:
     Expr *size;
     Type *elemType;
+    Type *arrayType;
 
   public:
     NewArrayExpr(yyltype loc, Expr *sizeExpr, Type *elemType);

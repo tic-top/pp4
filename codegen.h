@@ -30,8 +30,8 @@ class CodeGenerator {
     int curStackOffset;  // track current stack offset for temps/locals
     int globalOffset;    // track global variable offset
     List<const char*> *loopEndLabels;  // stack of loop end labels for break statements
-    Hashtable<Location*> *varLocations;  // symbol table for variable locations
-    Hashtable<class VarDecl*> *varDecls;  // symbol table for variable declarations (to get type info)
+    List<Hashtable<Location*>*> *varLocationStack;  // scope stack for variable locations
+    List<Hashtable<class VarDecl*>*> *varDeclStack; // scope stack for VarDecls (type info)
 
   public:
            // Here are some class constants to remind you of the offsets
@@ -186,11 +186,15 @@ class CodeGenerator {
     const char *GetCurrentLoopEndLabel();      // Get current loop end label for break
 
          // Symbol table methods for variable locations
-    void AddVariable(const char *name, Location *loc);  // Add variable to symbol table
-    void AddVarDecl(const char *name, class VarDecl *decl);  // Add VarDecl to symbol table
-    Location *GetVariable(const char *name);             // Get variable location from symbol table
-    class VarDecl *GetVarDecl(const char *name);         // Get VarDecl from symbol table
-    void ClearVariables();                                // Clear symbol table (for new scope)
+    void AddVariable(const char *name, Location *loc);  // Add variable to current scope
+    void AddVarDecl(const char *name, class VarDecl *decl);  // Add VarDecl to current scope
+    void AddGlobalVariable(const char *name, Location *loc); // Add global variable
+    void AddGlobalVarDecl(const char *name, class VarDecl *decl); // Add global var decl
+    Location *GetVariable(const char *name);             // Lookup variable location
+    class VarDecl *GetVarDecl(const char *name);         // Lookup VarDecl info
+    void ClearVariables();                               // Clear non-global scopes
+    void PushScope();                                    // Push a new scope
+    void PopScope();                                     // Pop current scope
 };
 
 #endif
