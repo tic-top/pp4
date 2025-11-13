@@ -189,13 +189,12 @@ void FnDecl::Emit(CodeGenerator *cg) {
     // Generate function label
     char label[256];
     const char *fname = id->GetName();
-    bool isMain = (strcmp(fname, "main") == 0);
+    ClassDecl *classDecl = dynamic_cast<ClassDecl*>(parent);
+    bool isMain = (!classDecl && strcmp(fname, "main") == 0);
 
     if (isMain) {
         strcpy(label, "main");
     } else {
-        // Check if this is a method (parent is ClassDecl)
-        ClassDecl *classDecl = dynamic_cast<ClassDecl*>(parent);
         if (classDecl) {
             // Method label: _ClassName.methodName
             sprintf(label, "_%s.%s", classDecl->GetId()->GetName(), fname);
@@ -260,4 +259,3 @@ void ClassDecl::Emit(CodeGenerator *cg) {
         if (method) method->Emit(cg);
     }
 }
-

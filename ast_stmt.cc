@@ -103,6 +103,11 @@ void Program::Emit() {
         ReportError::NoMainFound();
     }
 
+    // If any errors reported, abort code generation so linker errors aren't produced
+    if (ReportError::NumErrors() > 0) {
+        return;
+    }
+
     // Generate final MIPS code
     cg->DoFinalCodeGen();
 }

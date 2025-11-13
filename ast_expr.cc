@@ -156,19 +156,23 @@ Location *RelationalExpr::Emit(CodeGenerator *cg) {
     // TAC only supports '<', so we need to transform other operators
     if (strcmp(opStr, "<") == 0) {
         // a < b : direct support
+        SetResultType(Type::boolType);
         return cg->GenBinaryOp("<", leftLoc, rightLoc);
     } else if (strcmp(opStr, ">") == 0) {
         // a > b : swap to b < a
+        SetResultType(Type::boolType);
         return cg->GenBinaryOp("<", rightLoc, leftLoc);
     } else if (strcmp(opStr, "<=") == 0) {
         // a <= b : !(b < a)
         Location *temp = cg->GenBinaryOp("<", rightLoc, leftLoc);
         Location *result = cg->GenLoadConstant(1);
+        SetResultType(Type::boolType);
         return cg->GenBinaryOp("-", result, temp);
     } else if (strcmp(opStr, ">=") == 0) {
         // a >= b : !(a < b)
         Location *temp = cg->GenBinaryOp("<", leftLoc, rightLoc);
         Location *result = cg->GenLoadConstant(1);
+        SetResultType(Type::boolType);
         return cg->GenBinaryOp("-", result, temp);
     }
     SetResultType(Type::boolType);
